@@ -28,50 +28,206 @@ def create_text_clip_pil(text, duration, width=1000, fontsize=60):
                 font = ImageFont.load_default()
                 print("警告: 使用默认字体，可能不支持中文显示")
     
-    # 文字换行处理
-    char_width = fontsize * 0.6  # 估算字符宽度
-    max_chars_per_line = int(width / char_width)
-    
-    # 使用textwrap进行智能换行
-    wrapped_text = textwrap.fill(text, width=max_chars_per_line)
-    
-    # 计算文字区域大小
-    lines = wrapped_text.split('\n')
+    padding = 10
+    temp_img = Image.new('RGBA', (1, 1))
+    temp_draw = ImageDraw.Draw(temp_img)
+    def measure(s):
+        if not s:
+            return 0
+        bbox = temp_draw.textbbox((0, 0), s, font=font)
+        return bbox[2] - bbox[0]
+    def wrap_para(p):
+        lines = []
+        cur = ''
+        for ch in p:
+            t = cur + ch
+            if measure(t) <= (width - 2*padding) or cur == '':
+                cur = t
+            else:
+                lines.append(cur)
+                cur = ch
+        if cur:
+            lines.append(cur)
+        return lines
+    paras = text.split('\n')
+    lines = []
+    for p in paras:
+        lines.extend(wrap_para(p))
     line_height = int(fontsize * 1.3)
-    text_height = len(lines) * line_height + 20  # 增加一些边距
-    
-    # 创建透明背景图像
+    text_height = len(lines) * line_height + 2 * padding
     img = Image.new('RGBA', (width, text_height), color=(0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    
-    # 绘制文字（带黑色描边效果）
-    y_position = 10  # 顶部边距
-    
+    y_position = padding
     for line in lines:
-        # 估算文字宽度
         bbox = draw.textbbox((0, 0), line, font=font)
         text_width = bbox[2] - bbox[0]
         x_position = (width - text_width) // 2
-        
-        # 绘制文字描边（多个方向偏移创建描边效果）
+        x_position = max(padding, min(width - text_width - padding, x_position))
         offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), 
                   (-1, -1), (-1, 1), (1, -1), (1, 1)]
         for offset_x, offset_y in offsets:
             draw.text((x_position + offset_x, y_position + offset_y), 
                      line, font=font, fill=(0, 0, 0, 255))
-        
-        # 绘制主要文字（白色）
         draw.text((x_position, y_position), line, font=font, fill=(255, 255, 255, 255))
-        
         y_position += line_height
-    
-    # 转换为numpy数组
     img_array = np.array(img)
-    
-    # 创建视频片段（带透明通道）
     text_clip = ImageClip(img_array, duration=duration, ismask=False)
-    
     return text_clip
+
+def get_audio_file(name):
+    base = f"meme_audio/{name}"
+    cands = [f"{base}.mp3", f"{base}.MP3"]
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    return None
+
+def compute_scene_duration(memes, fallback):
+    ds = []
+    for m in memes:
+        content = m.get("lines")
+        if content is None:
+            content = m.get("text", "")
+        if isinstance(content, list):
+            content = "".join(content)
+        if content:
+            ds.append(1 + len(content) / 10.0)
+    if ds:
+        return max(ds)
+    return fallback
+
+def compose_multi_memes(place, scene_number, label_text, memes, duration):
+    width, height = 1080, 1080
+    image_path = f"backgrounds/{place}.jpg"
+    if not os.path.exists(image_path):
+        image_path = f"backgrounds/home.jpg"
+    bg_clip = ImageClip(image_path).resize(width=1080).set_duration(duration)
+    canvas_w, canvas_h = int(bg_clip.w), int(bg_clip.h)
+    def make_frame(t):
+        base = bg_clip.get_frame(t)
+        current = base
+        dyn = []
+        dyn_pos = []
+        stat = []
+        stat_pos = []
+        for m in memes:
+            name = m.get("name")
+            if not name:
+                continue
+            vp = f"meme/{name}.mp4"
+            if not os.path.exists(vp):
+                continue
+            lines = m.get("lines")
+            if lines is None:
+                lines = m.get("text", "")
+            if isinstance(lines, list):
+                lines = "".join(lines)
+            pos = int(m.get("position", 1))
+            if lines:
+                c = VideoFileClip(vp)
+                if c.duration < duration:
+                    c = c.loop(duration=duration)
+                else:
+                    c = c.subclip(0, duration)
+                c = c.resize(0.35)
+                w, h = c.size
+                if pos == 0:
+                    x = (canvas_w - w) // 2
+                else:
+                    x = 80 if pos == 1 else (canvas_w - w - 80)
+                y = canvas_h - h - 140
+                dyn.append(c)
+                dyn_pos.append((x, y))
+            else:
+                c = VideoFileClip(vp).resize(0.35)
+                w, h = c.size
+                if pos == 0:
+                    x = (canvas_w - w) // 2
+                else:
+                    x = 80 if pos == 1 else (canvas_w - w - 80)
+                y = canvas_h - h - 140
+                f0 = c.get_frame(0)
+                c.close()
+                stat.append(f0)
+                stat_pos.append((x, y))
+        for idx, c in enumerate(dyn):
+            gf = c.get_frame(t)
+            x, y = dyn_pos[idx]
+            current = chroma_key_paste(gf, current, x, y)
+        for idx, f0 in enumerate(stat):
+            x, y = stat_pos[idx]
+            current = chroma_key_paste(f0, current, x, y)
+        return current
+    comp = VideoClip(make_frame, duration=duration).set_fps(24)
+    label = create_text_clip_pil(label_text, duration, width=1000, fontsize=60).set_position(('center', 50))
+    attach_clips = [comp, label]
+    for m in memes:
+        nm = m.get("d_name") or m.get("name")
+        pos = int(m.get("position", 1))
+        lines = m.get("lines")
+        if lines is None:
+            lines = m.get("text", "")
+        if isinstance(lines, list):
+            lines = "".join(lines)
+        vp = f"meme/{m.get('name','')}.mp4"
+        if not os.path.exists(vp):
+            continue
+        tmp = VideoFileClip(vp).resize(0.35)
+        w, h = tmp.size
+        if pos == 0:
+            x = (canvas_w - w) // 2
+        else:
+            x = 40 if pos == 1 else (canvas_w - w - 40)
+        y = canvas_h - h - 140
+        tmp.close()
+        if nm:
+            name_w = max(100, min(w - 20, 300))
+            name_clip = create_text_clip_pil(str(nm), duration, width=name_w, fontsize=42)
+            nx = x + (w - name_clip.w) // 2
+            ny = y - 60
+            nx = max(10, min(canvas_w - name_clip.w - 10, nx))
+            ny = max(10, min(canvas_h - name_clip.h - 10, ny))
+            attach_clips.append(name_clip.set_position((nx, ny)))
+        if lines:
+            line_w = max(160, min(w - 20, 400))
+            lc = create_text_clip_pil(str(lines), duration, width=line_w, fontsize=40)
+            lx = x + (w - lc.w) // 2
+            ly = y + h + 10
+            lx = max(10, min(canvas_w - lc.w - 10, lx))
+            ly = max(10, min(canvas_h - lc.h - 10, ly))
+            attach_clips.append(lc.set_position((lx, ly)))
+    final = CompositeVideoClip(attach_clips)
+    audios = []
+    for m in memes:
+        lines = m.get("lines")
+        if lines is None:
+            lines = m.get("text", "")
+        if isinstance(lines, list):
+            lines = "".join(lines)
+        if lines:
+            ap = get_audio_file(m.get("name", ""))
+            if ap and os.path.exists(ap):
+                a = AudioFileClip(ap)
+                if a.duration > duration:
+                    a = a.subclip(0, duration)
+                audios.append(a)
+    if audios:
+        final_audio = CompositeAudioClip(audios)
+        final = final.set_audio(final_audio)
+    outp = f"{output_folder}/out{scene_number}.mp4"
+    final.write_videofile(outp, codec='libx264', audio_codec='aac', fps=24, verbose=False, logger=None)
+    try:
+        bg_clip.close()
+        comp.close()
+        label.close()
+        for cl in attach_clips[2:]:
+            cl.close()
+        for a in audios:
+            a.close()
+        final.close()
+    except Exception:
+        pass
+    return True
 
 def BgVideo(text, place, num, duration):
     # 创建一个空白视频，时长为指定duration，分辨率为1080x1080
@@ -122,6 +278,21 @@ def chroma_key_composite(green_frame, bg_frame):
     result = green_frame * mask_3d + bg_frame * (1 - mask_3d)
     
     return result.astype('uint8')
+def chroma_key_paste(green_frame, bg_frame, x, y):
+    gf = green_frame.astype('float32')
+    bg = bg_frame.astype('float32')
+    h, w = gf.shape[0], gf.shape[1]
+    H, W = bg.shape[0], bg.shape[1]
+    x = int(max(0, min(W - w, x)))
+    y = int(max(0, min(H - h, y)))
+    r, g, b = gf[:,:,0], gf[:,:,1], gf[:,:,2]
+    green_intensity = g - (r + b) / 2
+    mask = np.where(green_intensity > 50, 0.0, 1.0)
+    mask_3d = np.stack([mask, mask, mask], axis=2)
+    region = bg[y:y+h, x:x+w, :]
+    composite_region = gf * mask_3d + region * (1 - mask_3d)
+    bg[y:y+h, x:x+w, :] = composite_region
+    return bg.astype('uint8')
 
 def AddMeme(emo, num, duration):
     """使用MoviePy实现绿幕抠图，并确保文字在最上层"""
@@ -352,7 +523,7 @@ def process_jsonl_story(jsonl_file):
     for i, scene in enumerate(story):
         scene_number = scene.get("scene_number", i + 1)
         place = scene.get("backgrounds", "home")
-        text = scene.get("text", "")
+        text = scene.get("text", "") or scene.get("label", "")
         emo = scene.get("meme", "其他")
         duration = scene.get("duration", 3)
         
@@ -362,21 +533,21 @@ def process_jsonl_story(jsonl_file):
         processed_text = AddNewline(text)
         print(f"文本内容: {processed_text}")
         
-        # 生成背景视频（包含透明文字）
-        BgVideo(processed_text, place, scene_number, duration)
-        
-        # 添加表情（文字已经在最上层）
-        if not AddMeme(emo, scene_number, duration):
-            print(f"警告: 场景 {scene_number} 的表情视频生成失败")
-            continue
-        
-        # 添加音频到视频
-        audio_file = f"meme_audio/{emo}.mp3"
-        video_file = f"{output_folder}/{scene_number}.mp4"
-        output_video_file = f"{output_folder}/out{scene_number}.mp4"
-        
-        add_audio_to_video(video_file, audio_file, output_video_file)
-        video_names.append(f"out{scene_number}.mp4")
+        memes = scene.get("memes")
+        if isinstance(memes, list) and memes:
+            d2 = compute_scene_duration(memes, duration)
+            label_text = AddNewline(text)
+            compose_multi_memes(place, scene_number, label_text, memes, d2)
+            video_names.append(f"out{scene_number}.mp4")
+        else:
+            BgVideo(processed_text, place, scene_number, duration)
+            if not AddMeme(emo, scene_number, duration):
+                continue
+            audio_file = f"meme_audio/{emo}.mp3"
+            video_file = f"{output_folder}/{scene_number}.mp4"
+            output_video_file = f"{output_folder}/out{scene_number}.mp4"
+            add_audio_to_video(video_file, audio_file, output_video_file)
+            video_names.append(f"out{scene_number}.mp4")
     
     if video_names:
         folder_path = f"results"
@@ -391,5 +562,5 @@ def process_jsonl_story(jsonl_file):
 
 # 使用示例
 if __name__ == "__main__":
-    jsonl_file = "script.jsonl" 
+    jsonl_file = "script_checked.jsonl" 
     process_jsonl_story(jsonl_file)
