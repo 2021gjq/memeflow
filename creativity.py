@@ -28,14 +28,12 @@ def get_text(input_text='帮我按照格式生成一个HKU校园爽剧，要翻�
         model=MODEL,
     )
     res = response.choices[0].message.content
-
     try:
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(res)
         print(f"\n输出已保存到文件: {output_file}")
     except Exception as e:
         print(f"保存文件时出错: {e}")
-    
     return res
 
 if __name__ == "__main__":

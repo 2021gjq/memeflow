@@ -167,7 +167,7 @@ query2script_prompt="""
 注意：必须严格按照示例的格式生成脚本
 """
 script2json_prompt="""
-你需要将输入的**脚本文案**转换为指定的 JSON 格式，每条对话生成一个 scene，并严格遵循以下规则：
+你需要将输入的**脚本文案**转换为指定的 JSON 格式，每条对话生成一个scene，并严格遵循以下规则：
 JSON格式：
 [
     {{
@@ -677,6 +677,51 @@ JSON格式：
 注意：输出时直接输出json数据，不要带其他任何冗余的符号
 **再次强调**：`name`：素材库中猫 meme 的名字，用于选择表情或动作，**必须从以下指定列表选择**：{memes}
             `backgrounds`：场景背景，严格从以下列表选择：{backgrounds}
+"""
+json_check = """
+检查这个json数据是否符合以下要求：
+    - `name`：- 首先判断每个`name`字段的内容是否属于素材库中的猫 meme 的名字，用于选择最符合该人物心理、场景和动作的meme视频，**判断是否从以下指定列表中选择**：{memes}
+    - `name`中存在类似的meme视频用数字在后面标记了，比如吃饭有两个meme都可以表达：吃饭,吃饭2。可以任意选择一个使用
+    - `backgrounds`：同理，场景背景，严格从以下列表中选择：{backgrounds}
+    - 如果name的数据不符合上述要求的数据：
+        1.请根据该人物原来的name以及对应text字段的内容，从指定列表中选择一个**最合适的**、**最符合场景的**填入对应字段，例如：
+        "鄙夷" → "蔑视"
+        "淡然" → "淡定"
+        "嗤笑" → "嘲笑"
+        "打断" → "质问"（语气强、带压制感）
+        "摆手" → "无奈"（语义最接近的动作类）
+        "镇定" → "淡定"
+        "锐利" → "威严"（强势、有压迫感，与台词相符）
+        "微笑" → "愉快"
+        2.最后：请只返回json格式数据，禁止生成其他冗余的内容，每个scene的json对象单独一行
+最终示例如下：
+**输入JSON：**
+[
+//..
+{{"scene_number": 2, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "鄙夷", "d_name": "教授", "text": "陈一凡？没听说过……你是不是填错专业了？我们这儿可不收‘野鸡’学生。", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 3, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "淡然", "d_name": "新生", "text": "哦，我是来读哲学系的。", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+{{"scene_number": 4, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "嗤笑", "d_name": "教授", "text": "哲学？现在还有人真信这个？你爸妈知道你在浪费时间吗？", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+//..
+{{"scene_number": 17, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "镇定", "d_name": "教授", "text": "你……你可是当年的“天才少年”，怎么突然放弃一切，跑来读哲学？", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 18, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "锐利", "d_name": "新生", "text": "因为我想知道——**这个世界，到底是谁在定义“成功”？**", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+{{"scene_number": 19, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "崩溃", "d_name": "教授", "text": "……陈同学，您……您才是真正的……教授。", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 20, "backgrounds": "university", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "微笑", "d_name": "新生", "text": "别怕，下次别再用“分数”判断一个人了。", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+//..
+]
+输出：
+[
+//..
+{{"scene_number": 2, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "蔑视", "d_name": "教授", "text": "陈一凡？没听说过……你是不是填错专业了？我们这儿可不收‘野鸡’学生。", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 3, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "淡定", "d_name": "新生", "text": "哦，我是来读哲学系的。", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+{{"scene_number": 4, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "嘲笑", "d_name": "教授", "text": "哲学？现在还有人真信这个？你爸妈知道你在浪费时间吗？", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+//..
+{{"scene_number": 17, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "淡定", "d_name": "教授", "text": "你……你可是当年的“天才少年”，怎么突然放弃一切，跑来读哲学？", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 18, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "威严", "d_name": "新生", "text": "因为我想知道——**这个世界，到底是谁在定义“成功”？**", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+{{"scene_number": 19, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "崩溃", "d_name": "教授", "text": "……陈同学，您……您才是真正的……教授。", "position": 1}}, {{"name": "呆滞", "d_name": "新生", "text": "", "position": 2}}]}},
+{{"scene_number": 20, "backgrounds": "school", "label": "港大新生报到日，教授当场被反杀", "memes": [{{"name": "愉快", "d_name": "新生", "text": "别怕，下次别再用“分数”判断一个人了。", "position": 2}}, {{"name": "震惊", "d_name": "教授", "text": "", "position": 1}}]}},
+//..
+]
+再次强调：输出必须是能被解析的json格式
 """
 class PromptTemplate:
     """
